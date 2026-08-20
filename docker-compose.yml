@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: "8080"
+      # The browser talks to nginx, which proxies to this service, so requests
+      # arrive same-origin and no cross-origin allowance is needed. Set this to
+      # a real origin if you expose the API directly.
+      CORS_ALLOWED_ORIGIN: "http://localhost:3000"
+    ports:
+      # Published so the API can be exercised with curl; the frontend reaches it
+      # over the internal network regardless. Override the host port when 8080
+      # is taken: BACKEND_PORT=9090 docker compose up
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      # scratch has no shell or curl, so the health check uses the binary's own
+      # built-in probe.
+      test: ["CMD", "/server", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      start_period: 3s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      # Override when 3000 is taken: FRONTEND_PORT=3001 docker compose up
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
