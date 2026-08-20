@@ -1,0 +1,410 @@
+/*
+ * Design tokens. Colours are declared once here and re-declared under
+ * prefers-color-scheme, so every component styles itself in terms of roles
+ * ("surface", "accent") rather than literal colours.
+ */
+:root {
+  --surface-page: #eef1f6;
+  --surface-panel: #ffffff;
+  --surface-key: #f4f6fa;
+  --surface-key-hover: #e6eaf2;
+  --surface-display: #1b2130;
+
+  --text-primary: #1b2130;
+  --text-muted: #626b7d;
+  --text-inverse: #f7f9fc;
+  --text-display-muted: #8c97ad;
+
+  --accent: #3f6ae0;
+  --accent-hover: #3559c4;
+  --accent-text: #ffffff;
+
+  --danger-surface: #fdecec;
+  --danger-border: #e5484d;
+  --danger-text: #a01b1f;
+
+  --border: #d9dfea;
+  --radius: 14px;
+  --shadow: 0 10px 30px rgb(23 33 56 / 10%);
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-page: #10141d;
+    --surface-panel: #1a202c;
+    --surface-key: #232b3a;
+    --surface-key-hover: #2d3749;
+    --surface-display: #0b0e15;
+
+    --text-primary: #e9edf5;
+    --text-muted: #97a1b5;
+    --text-inverse: #f7f9fc;
+    --text-display-muted: #6f7b91;
+
+    --accent: #5b83f0;
+    --accent-hover: #6f93f5;
+
+    --danger-surface: #3a1a1c;
+    --danger-border: #e5484d;
+    --danger-text: #ff9ea1;
+
+    --border: #2b3446;
+    --shadow: 0 10px 30px rgb(0 0 0 / 40%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: clamp(1rem, 4vw, 3rem);
+}
+
+.app__inner {
+  width: 100%;
+  max-width: 60rem;
+}
+
+.app__header {
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.app__title {
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.app__subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/*
+ * Mobile-first: a single column that becomes two once there is room for the
+ * history panel beside the keypad.
+ */
+.app__panels {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .app__panels {
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.calculator {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- Display ---------- */
+
+.display {
+  position: relative;
+  padding: 1rem 1.1rem;
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--surface-display);
+  color: var(--text-inverse);
+}
+
+.display__expression {
+  min-height: 1.25rem;
+  color: var(--text-display-muted);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: pre;
+}
+
+.display__value {
+  display: block;
+  overflow-x: auto;
+  font-size: clamp(2rem, 9vw, 2.75rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-align: right;
+  /* Long results scroll horizontally instead of stretching the panel. */
+  white-space: nowrap;
+}
+
+.display__spinner {
+  position: absolute;
+  top: 0.9rem;
+  left: 1.1rem;
+}
+
+.display__spinner-dot {
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* Respect a user's reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .display__spinner-dot {
+    animation: none;
+    opacity: 1;
+  }
+
+  .key {
+    transition: none;
+  }
+}
+
+/* ---------- Keypad ---------- */
+
+.keypad {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 1rem;
+}
+
+.key {
+  padding: clamp(0.85rem, 3vw, 1.1rem) 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--surface-key);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: clamp(1rem, 3.5vw, 1.15rem);
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    transform 80ms ease;
+  /* Comfortably above the 44px minimum touch target. */
+  min-height: 3rem;
+}
+
+.key:hover:not(:disabled) {
+  background: var(--surface-key-hover);
+}
+
+.key:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Visible focus ring for keyboard users, without a permanent outline on click. */
+.key:focus-visible,
+.history__clear:focus-visible,
+.error-banner__dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.key:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.key--operator {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.key--function {
+  color: var(--text-muted);
+}
+
+.key--equals {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.key--equals:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.key--wide {
+  grid-column: span 2;
+}
+
+/* ---------- Error banner ---------- */
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--danger-border);
+  border-radius: calc(var(--radius) - 6px);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
+.error-banner__icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--danger-border);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.error-banner__message {
+  flex: 1;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.error-banner__dismiss {
+  flex-shrink: 0;
+  padding: 0 0.25rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ---------- History ---------- */
+
+.history {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow);
+}
+
+.history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.history__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.history__clear {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-key);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.history__clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.history__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.history__list {
+  max-height: 22rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.history__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.history__item:last-child {
+  border-bottom: none;
+}
+
+.history__expression {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.history__result {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- Footer ---------- */
+
+.app__footer {
+  margin-top: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.app__footer p {
+  margin: 0;
+}
+
+kbd {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-key);
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
