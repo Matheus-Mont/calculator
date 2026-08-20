@@ -8,6 +8,7 @@ dist/
 # Test & coverage artefacts
 coverage/
 *.out
+coverage.html
 *.lcov
 
 # Environment
