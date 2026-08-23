@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { CalculateOutcome } from '../api/client';
@@ -398,6 +399,41 @@ describe('error handling', () => {
 
     await waitFor(() => expect(result.current.error).toBe('no real root'));
     expect(result.current.history).toHaveLength(0);
+  });
+});
+
+describe('reducer purity', () => {
+  // StrictMode deliberately invokes reducers twice in development to surface
+  // impure ones. A history id minted inside the reducer would make the same
+  // dispatch produce two different states; minting it at dispatch time does not.
+  it('records one history entry per calculation under StrictMode', async () => {
+    const calculate = stubCalculate();
+    const { result } = renderHook(() => useCalculator({ calculate }), { wrapper: StrictMode });
+
+    type(result, '2');
+    await act(async () => result.current.chooseOperation('add'));
+    type(result, '3');
+    await act(async () => result.current.evaluate());
+
+    await waitFor(() => expect(result.current.display).toBe('5'));
+    expect(result.current.history).toHaveLength(1);
+  });
+
+  it('gives every history entry a distinct id', async () => {
+    const { result } = setup();
+
+    for (const digit of ['1', '2', '3']) {
+      type(result, digit);
+      await act(async () => result.current.chooseOperation('add'));
+      type(result, '1');
+      await act(async () => result.current.evaluate());
+      await waitFor(() => expect(result.current.error).toBeNull());
+      act(() => result.current.clearAll());
+    }
+
+    const ids = result.current.history.map((entry) => entry.id);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
   });
 });
 

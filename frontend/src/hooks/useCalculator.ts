@@ -44,11 +44,19 @@ type Action =
   | { type: 'CLEAR_ALL' }
   | { type: 'SET_PENDING_OP'; op: BinaryOperation }
   | { type: 'REQUEST_START' }
-  | { type: 'REQUEST_SUCCESS'; result: number; expression: string; nextOp: BinaryOperation | null }
-  | { type: 'UNARY_SUCCESS'; result: number; expression: string }
+  | { type: 'REQUEST_SUCCESS'; id: string; result: number; expression: string; nextOp: BinaryOperation | null }
+  | { type: 'UNARY_SUCCESS'; id: string; result: number; expression: string }
   | { type: 'REQUEST_FAILURE'; message: string }
   | { type: 'CLEAR_HISTORY' };
 
+/**
+ * Pure state transition.
+ *
+ * Every value it needs arrives on the action — history ids included. React may
+ * call a reducer more than once for the same action (StrictMode does so
+ * deliberately in development), so minting an id in here would make the same
+ * dispatch produce different states.
+ */
 function reducer(state: CalculatorState, action: Action): CalculatorState {
   switch (action.type) {
     case 'INPUT_DIGIT': {
@@ -120,14 +128,14 @@ function reducer(state: CalculatorState, action: Action): CalculatorState {
         pendingOp: action.nextOp,
         justEvaluated: action.nextOp === null,
         history: [
-          { id: crypto.randomUUID(), expression: action.expression, result: formatNumber(action.result) },
+          { id: action.id, expression: action.expression, result: formatNumber(action.result) },
           ...state.history,
         ].slice(0, MAX_HISTORY_ENTRIES),
       };
 
     case 'UNARY_SUCCESS': {
       const entry = {
-        id: crypto.randomUUID(),
+        id: action.id,
         expression: action.expression,
         result: formatNumber(action.result),
       };
@@ -223,7 +231,13 @@ export function useCalculator(options: UseCalculatorOptions = {}) {
       const outcome = await calculate(pendingOp, accumulator, b);
 
       if (outcome.ok) {
-        dispatch({ type: 'REQUEST_SUCCESS', result: outcome.data.result, expression, nextOp });
+        dispatch({
+          type: 'REQUEST_SUCCESS',
+          id: crypto.randomUUID(),
+          result: outcome.data.result,
+          expression,
+          nextOp,
+        });
       } else {
         dispatch({ type: 'REQUEST_FAILURE', message: outcome.error.message });
       }
@@ -272,7 +286,12 @@ export function useCalculator(options: UseCalculatorOptions = {}) {
       const outcome = await calculate(op, a);
 
       if (outcome.ok) {
-        dispatch({ type: 'UNARY_SUCCESS', result: outcome.data.result, expression });
+        dispatch({
+          type: 'UNARY_SUCCESS',
+          id: crypto.randomUUID(),
+          result: outcome.data.result,
+          expression,
+        });
       } else {
         dispatch({ type: 'REQUEST_FAILURE', message: outcome.error.message });
       }
