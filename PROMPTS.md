@@ -79,8 +79,29 @@ show where generated code needs checking rather than trusting:
    `keydown` listener down and re-added it continuously. Fixed by reading
    handlers through a ref and binding once.
 
-Neither was caught by a type checker or a test — both came from reading the code
-afterwards.
+3. **The "backend is down" message told the user the wrong thing.** The client had
+   a carefully worded network error — *"Could not reach the calculator service. Is
+   the backend running?"* — that turned out to be unreachable code. In every
+   deployed configuration a proxy sits between browser and API (Vite in
+   development, nginx in the image), so a stopped backend does not make `fetch`
+   reject: the proxy answers with a 502 and an empty body, `fetch` resolves, and
+   the client fell through to *"the service returned an unexpected response"*.
+   Worse, a unit test asserted exactly that, so the wrong behaviour was pinned in
+   place rather than caught. Fixed by treating 502/503/504 as an unreachable
+   service before the body is read; the test now asserts the corrected message.
+
+The first two came from reading the code afterwards — neither a type checker nor a
+test would have found them. The third came from actually stopping the backend and
+using the app, which no amount of code reading would have surfaced: the unit tests
+mock `fetch` directly and therefore never exercise the proxy that causes it.
+
+**The git history is a single burst, and that is not a claim of incremental work.**
+`git log` shows fourteen commits inside about forty seconds. They are grouped as
+logical units — domain, transport, tests, frontend, docker, docs — because that is
+how the work was structured, but they were staged at the end of one session rather
+than made as the code was written. The timestamps are left untouched on purpose:
+rewriting them to imply hours of incremental work would misrepresent how this was
+built. Read the messages, not the clock.
 
 **Verification was not delegated.** Nothing was reported as working on the
 strength of it having been written. Every `curl` example in the README was

@@ -216,7 +216,7 @@ cd frontend && npm run test:coverage
 
 ### Coverage
 
-Measured on the committed code — **222 test cases, all passing**.
+Measured on the committed code — **227 test cases, all passing**.
 
 **Backend** — `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
@@ -236,12 +236,12 @@ than a unit test. The two packages holding the actual logic are at 100% and 98.6
 
 | Metric | Coverage |
 |---|---|
-| Statements | **96.0%** (192/200) |
-| Branches | 93.49% (158/169) |
+| Statements | **96.07%** (196/204) |
+| Branches | 93.56% (160/171) |
 | Functions | **100%** (49/49) |
-| Lines | **98.31%** (175/178) |
+| Lines | **98.35%** (179/182) |
 
-88 test cases across the API client, the `useCalculator` state machine, number
+93 test cases across the API client, the `useCalculator` state machine, number
 formatting, and full-UI integration tests that click real buttons.
 
 HTML reports land at `backend/coverage.html` and `frontend/coverage/index.html`.
@@ -261,7 +261,8 @@ Not just happy paths — the interesting cases are the edges:
 - **Frontend**: digit entry and its edge cases (leading zeros, a second decimal
   point, a lone minus sign after backspace), operator chaining, unary operations
   feeding a pending binary one, the loading state, error recovery, history, all
-  22 keypad buttons, and physical-keyboard input.
+  22 keypad buttons, physical-keyboard input, reducer purity under `StrictMode`,
+  and the difference between a stopped backend and a malformed reply.
 
 ---
 
@@ -359,6 +360,14 @@ than decorative.
 
 A unary result feeds a pending binary operation rather than replacing it, so
 `9 + √16 =` is `13`.
+
+**A stopped backend reports itself as unreachable, not as a strange reply.** In
+every deployed configuration a proxy sits between the browser and the API — Vite
+in development, nginx in the image — so a stopped backend does not make `fetch`
+reject. The proxy answers with a 502 and an empty body. The client treats
+502/503/504 as an unreachable service before it tries to read the body, which is
+what makes the message the user sees ("Is the backend running?") match what
+actually happened.
 
 ### Accessibility and responsiveness
 
