@@ -128,12 +128,35 @@ describe('calculate', () => {
     }
   });
 
-  // A proxy or gateway can return HTML rather than the documented envelope;
-  // the client must not crash trying to read .error.message off it.
-  it('handles a non-JSON body', async () => {
+  // The scenario that actually happens when the backend is stopped: a proxy
+  // (Vite in development, nginx in the image) answers on its behalf, so fetch
+  // resolves and the body is empty or HTML. Reporting this as a malformed
+  // response would tell the user the service replied strangely, when it never
+  // replied at all.
+  it.each([502, 503, 504])('reports %i as an unreachable service', async (status) => {
     vi.mocked(fetch).mockResolvedValue({
       ok: false,
-      status: 502,
+      status,
+      json: async () => {
+        throw new SyntaxError('Unexpected token <');
+      },
+    } as unknown as Response);
+
+    const outcome = await calculate('add', 1, 2);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error.code).toBe('service_unavailable');
+      expect(outcome.error.message).toMatch(/backend/i);
+    }
+  });
+
+  // A non-gateway status with an unreadable body is a different failure: the
+  // service did answer, just not in the documented shape.
+  it('still reports a non-JSON body on a non-gateway status', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
       json: async () => {
         throw new SyntaxError('Unexpected token <');
       },

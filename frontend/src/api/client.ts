@@ -23,9 +23,27 @@ export type CalculateOutcome =
   | { ok: true; data: Calculation }
   | { ok: false; error: ApiError };
 
+/**
+ * Statuses a proxy returns when it could not reach the backend at all.
+ *
+ * In every deployed configuration something sits between the browser and the
+ * API — Vite in development, nginx in the image — so a stopped backend does
+ * not make fetch reject. The proxy answers instead, with one of these statuses
+ * and an empty or HTML body. Without this list the request looks like a reply
+ * from the calculator service, and the user is told the service answered
+ * strangely when in fact it never answered at all.
+ */
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+
 /** Error surfaced when the API cannot be reached at all. */
 const NETWORK_ERROR: ApiError = {
   code: 'network_error',
+  message: 'Could not reach the calculator service. Is the backend running?',
+};
+
+/** Same situation as NETWORK_ERROR, but reported by a proxy rather than fetch. */
+const UNAVAILABLE_ERROR: ApiError = {
+  code: 'service_unavailable',
   message: 'Could not reach the calculator service. Is the backend running?',
 };
 
@@ -67,6 +85,12 @@ export async function calculate(
     return { ok: false, error: isTimeout ? TIMEOUT_ERROR : NETWORK_ERROR };
   }
 
+  // Checked before reading the body: a gateway error carries no API envelope,
+  // and the reason the request failed is that the service is down.
+  if (GATEWAY_STATUSES.has(response.status)) {
+    return { ok: false, error: UNAVAILABLE_ERROR };
+  }
+
   let payload: unknown;
   try {
     payload = await response.json();
@@ -91,7 +115,7 @@ export async function fetchOperations(): Promise<Operation[] | null> {
     const response = await fetch(`${API_BASE_URL}/operations`, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return null; // includes gateway errors: the service is unreachable
 
     const payload: unknown = await response.json();
     if (
