@@ -203,20 +203,39 @@ curl -X GET http://localhost:8080/api/v1/operations/add
 ## Tests
 
 ```bash
-make test          # both suites
-make cover         # both, with coverage reports
+make test              # the two unit suites (fast)
+make test-integration  # cross-boundary tests (needs Go)
+make test-all          # everything
+make cover             # unit suites, with coverage reports
 ```
 
-Or per layer:
+Or directly:
 
 ```bash
 cd backend  && go test ./... -cover
 cd frontend && npm run test:coverage
+cd frontend && npm run test:integration
 ```
+
+### Three tiers
+
+| Tier | What it covers | Where |
+|---|---|---|
+| Unit — backend | Arithmetic rules and HTTP behaviour, via `httptest` | `backend/internal/**/*_test.go` |
+| Unit — frontend | API client, state machine, formatting, rendered UI | `frontend/src/**/*.test.{ts,tsx}` |
+| Integration | The real Go binary behind the real Vite proxy, called through the real client with an unmocked `fetch` | `frontend/src/test/integration/` |
+
+The integration tier exists because of a defect the unit tiers could not see. The
+client tests stub `fetch`, so no unit test ever crosses a proxy — and a stopped
+backend does not make `fetch` reject, it makes a proxy answer `502`. The client
+read that as a malformed reply and told the user the service had answered
+strangely, when it had not answered at all. That case is now a regression test
+(`reports the service as unreachable, not as a malformed reply`), verified to
+fail against the previous implementation.
 
 ### Coverage
 
-Measured on the committed code — **227 test cases, all passing**.
+Measured on the committed code — **242 test cases, all passing**.
 
 **Backend** — `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
@@ -241,10 +260,21 @@ than a unit test. The two packages holding the actual logic are at 100% and 98.6
 | Functions | **100%** (49/49) |
 | Lines | **98.35%** (179/182) |
 
-93 test cases across the API client, the `useCalculator` state machine, number
-formatting, and full-UI integration tests that click real buttons.
+93 unit cases across the API client, the `useCalculator` state machine, number
+formatting, and full-UI tests that click real buttons — plus **15 integration
+cases** that run against a real backend and are excluded from the coverage
+figures above, since they exercise the shipped code rather than measure it.
 
 HTML reports land at `backend/coverage.html` and `frontend/coverage/index.html`.
+
+### Continuous integration
+
+`.gitlab-ci.yml` runs four jobs across three stages: the Go suite (with `gofmt`
+and `go vet` as gates), the frontend suite, the integration suite, and both
+container image builds. The backend job compiles a static binary once and passes
+it downstream as an artifact, so the integration job runs on a plain Node image
+with no Go toolchain of its own. Both coverage figures are reported back to
+GitLab, the frontend's as a Cobertura report.
 
 ### What the tests actually cover
 
@@ -432,6 +462,8 @@ calculator/
 │       ├── hooks/useKeyboard.ts  # physical keyboard bindings
 │       ├── components/           # Display, Keypad, Key, History, ErrorBanner
 │       └── lib/format.ts         # float64 display formatting
+│       └── test/integration/     # real backend + real proxy + real fetch
+├── .gitlab-ci.yml                # unit, integration, and image-build jobs
 ├── docker-compose.yml
 ├── Makefile
 └── PROMPTS.md                    # the prompts behind this repository
@@ -441,15 +473,14 @@ calculator/
 
 ## With more time
 
-- **Integration tests across the boundary** — the layers are each well covered,
-  but nothing automated asserts that the frontend and a real backend agree.
-  A Playwright suite against `docker compose up` would close that gap; right now
-  it was verified by hand.
+- **Browser-level end-to-end tests.** The integration tier covers the client
+  against a real backend through a real proxy, but nothing automated drives the
+  actual UI; that was verified by hand in a headless browser. A Playwright suite
+  against `docker compose up` would close the last gap.
 - **Request IDs** threaded from the frontend through `slog`, so one calculation
   is traceable end to end.
 - **Rate limiting** — the API is unauthenticated and currently unprotected.
-- **A CI workflow** running `go test`, `npm test` and both image builds.
 - **`golangci-lint` and ESLint** — `gofmt`, `go vet` and `tsc --strict` are
-  clean, but neither linter is wired up.
+  clean and gated in CI, but neither linter is wired up.
 - **Decimal arithmetic** behind a flag, if exactness ever mattered more than
   speed.

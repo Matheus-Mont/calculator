@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 /backend/server
+/calculator-server
 
 # Test & coverage artefacts
 coverage/

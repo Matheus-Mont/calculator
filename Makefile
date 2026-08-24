@@ -2,8 +2,9 @@
 # Every target is a thin alias for the underlying go/npm command, so nothing
 # here is required to build or run the project.
 
-.PHONY: help install test test-backend test-frontend cover cover-backend cover-frontend \
-        lint dev-backend dev-frontend build docker-up docker-down clean
+.PHONY: help install test test-backend test-frontend test-integration test-all \
+        cover cover-backend cover-frontend lint dev-backend dev-frontend build \
+        docker-up docker-down clean
 
 GO ?= go
 
@@ -14,13 +15,18 @@ help: ## Show the available targets
 install: ## Install frontend dependencies
 	cd frontend && npm ci
 
-test: test-backend test-frontend ## Run every test suite
+test: test-backend test-frontend ## Run the unit suites (fast)
+
+test-all: test test-integration ## Run every suite, integration included
 
 test-backend: ## Run the Go tests
 	cd backend && $(GO) test ./...
 
 test-frontend: ## Run the React tests
 	cd frontend && npm run test
+
+test-integration: ## Cross-boundary tests: real Go server behind the real proxy (needs Go)
+	cd frontend && npm run test:integration
 
 cover: cover-backend cover-frontend ## Produce coverage reports for both layers
 
