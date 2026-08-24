@@ -14,7 +14,7 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/Matheus-Mont/calculator/backend/internal/calc"
+	"gitlab.com/mathspa98/calculator/backend/internal/calc"
 )
 
 // maxRequestBodyBytes caps request bodies. The largest legitimate request here

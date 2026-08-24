@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Matheus-Mont/calculator/backend/internal/httpapi"
+	"gitlab.com/mathspa98/calculator/backend/internal/httpapi"
 )
 
 const testOrigin = "http://localhost:5173"
