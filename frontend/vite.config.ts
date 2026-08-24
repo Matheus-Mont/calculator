@@ -19,10 +19,14 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Integration tests live in their own config: they boot a real Go binary,
+    // which this suite (and the frontend Docker build) has no toolchain for.
+    exclude: ['**/node_modules/**', '**/dist/**', 'src/test/integration/**'],
     css: false,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html', 'lcov'],
+      // cobertura is what GitLab parses for the coverage visualisation.
+      reporter: ['text', 'html', 'lcov', 'cobertura'],
       include: ['src/**/*.{ts,tsx}'],
       // Entry point and type-only modules carry no logic worth covering.
       exclude: ['src/main.tsx', 'src/test/**', 'src/**/*.test.{ts,tsx}', 'src/types.ts'],
