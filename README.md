@@ -235,7 +235,7 @@ fail against the previous implementation.
 
 ### Coverage
 
-Measured on the committed code — **248 test cases, all passing**.
+Measured on the committed code — **254 test cases, all passing**.
 
 **Backend** — `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
@@ -260,7 +260,7 @@ than a unit test. The two packages holding the actual logic are at 100% and 98.6
 | Functions | **100%** (49/49) |
 | Lines | **98.35%** (179/182) |
 
-99 unit cases across the API client, the `useCalculator` state machine, number
+105 unit cases across the API client, the `useCalculator` state machine, number
 formatting, and full-UI tests that click real buttons — plus **15 integration
 cases** that run against a real backend and are excluded from the coverage
 figures above, since they exercise the shipped code rather than measure it.
@@ -292,8 +292,8 @@ Not just happy paths — the interesting cases are the edges:
   point, a lone minus sign after backspace), operator chaining, unary operations
   feeding a pending binary one, the loading state, error recovery, history, all
   22 keypad buttons, physical-keyboard input, reducer purity under `StrictMode`,
-  collapsing and expanding the history, and the difference between a stopped
-  backend and a malformed reply.
+  collapsing and expanding the history, fitting an oversized result to the
+  display, and the difference between a stopped backend and a malformed reply.
 
 ---
 
@@ -391,6 +391,16 @@ than decorative.
 
 A unary result feeds a pending binary operation rather than replacing it, so
 `9 + √16 =` is `13`.
+
+**An oversized result shrinks rather than being clipped.** `2^99` formats to
+`6.33825300114e+29`, wider than the panel at the display's natural size. The
+value is measured after each change and scaled down until it fits, the way a
+physical calculator does, with a floor below which it stops shrinking and
+scrolls instead — 44px at 1280px wide, 25px at 390px, 19px at 320px, uncut at
+all three. Scrollbars are hidden on the display and on history expressions,
+since a strip of browser chrome across a readout reads as part of the number;
+that is precisely why clipping had to be solved rather than left to the user to
+scroll past.
 
 **A stopped backend reports itself as unreachable, not as a strange reply.** In
 every deployed configuration a proxy sits between the browser and the API — Vite
