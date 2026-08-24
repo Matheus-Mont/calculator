@@ -190,6 +190,82 @@ describe('every keypad key is wired up', () => {
   });
 });
 
+describe('history is collapsed to the latest result', () => {
+  /** Runs `count` calculations so the history has something to collapse. */
+  async function fillHistory(user: ReturnType<typeof userEvent.setup>, count: number) {
+    for (let i = 1; i <= count; i++) {
+      await press(user, 'Clear all', String(i), 'Multiply', '7', 'Equals');
+      await waitFor(() => expect(screen.getAllByRole('listitem').length).toBeGreaterThan(0));
+    }
+  }
+
+  it('shows only the most recent entry', async () => {
+    const { user } = renderApp();
+
+    await fillHistory(user, 3);
+
+    // The newest calculation is the one worth glancing at while working.
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByText('3 × 7')).toBeInTheDocument();
+    expect(screen.queryByText('1 × 7')).not.toBeInTheDocument();
+  });
+
+  it('offers to reveal the rest, counting what is hidden', async () => {
+    const { user } = renderApp();
+
+    await fillHistory(user, 4);
+
+    expect(screen.getByRole('button', { name: 'Show 3 more' })).toBeInTheDocument();
+  });
+
+  it('expands to every entry and collapses again', async () => {
+    const { user } = renderApp();
+
+    await fillHistory(user, 4);
+    await user.click(screen.getByRole('button', { name: 'Show 3 more' }));
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(4);
+    expect(screen.getByText('1 × 7')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Show less' }));
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('marks the toggle as expanded for assistive technology', async () => {
+    const { user } = renderApp();
+
+    await fillHistory(user, 2);
+    const toggle = screen.getByRole('button', { name: 'Show 1 more' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(toggle);
+
+    expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  // With a single calculation there is nothing behind the toggle, so offering
+  // one would be a control that does nothing.
+  it('offers no toggle when only one calculation exists', async () => {
+    const { user } = renderApp(stubCalculate(56));
+
+    await press(user, '7', 'Multiply', '8', 'Equals');
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(1));
+
+    expect(screen.queryByRole('button', { name: /show/i })).not.toBeInTheDocument();
+  });
+
+  it('offers no clear button until there is something to clear', async () => {
+    const { user } = renderApp(stubCalculate(56));
+
+    expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument();
+
+    await press(user, '7', 'Multiply', '8', 'Equals');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument());
+  });
+});
+
 describe('error handling', () => {
   it('announces a failed calculation', async () => {
     const { user } = renderApp(stubCalculate('error'));

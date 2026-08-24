@@ -235,7 +235,7 @@ fail against the previous implementation.
 
 ### Coverage
 
-Measured on the committed code — **242 test cases, all passing**.
+Measured on the committed code — **248 test cases, all passing**.
 
 **Backend** — `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
@@ -260,7 +260,7 @@ than a unit test. The two packages holding the actual logic are at 100% and 98.6
 | Functions | **100%** (49/49) |
 | Lines | **98.35%** (179/182) |
 
-93 unit cases across the API client, the `useCalculator` state machine, number
+99 unit cases across the API client, the `useCalculator` state machine, number
 formatting, and full-UI tests that click real buttons — plus **15 integration
 cases** that run against a real backend and are excluded from the coverage
 figures above, since they exercise the shipped code rather than measure it.
@@ -292,7 +292,8 @@ Not just happy paths — the interesting cases are the edges:
   point, a lone minus sign after backspace), operator chaining, unary operations
   feeding a pending binary one, the loading state, error recovery, history, all
   22 keypad buttons, physical-keyboard input, reducer purity under `StrictMode`,
-  and the difference between a stopped backend and a malformed reply.
+  collapsing and expanding the history, and the difference between a stopped
+  backend and a malformed reply.
 
 ---
 
@@ -405,8 +406,11 @@ Real `<button>` elements throughout; `aria-label`s spell out operators
 ("Divide", not "÷"); the display is an `<output>` with `aria-live="polite"`; the
 error banner is `role="alert"`; focus rings are visible for keyboard users; the
 `prefers-reduced-motion` and `prefers-color-scheme` media queries are both
-honoured. Layout is mobile-first CSS grid — the history panel sits beside the
-keypad above 720px and stacks below it on a phone. Full physical-keyboard
+honoured. The layout is a single centred column at every width: the calculator
+owns the main area and history sits beneath it, collapsed to the most recent
+result with a toggle that reveals the rest. That keeps the keypad the subject —
+as a sidebar, history ended up wider than the calculator itself — and means
+there is no reflow between breakpoints. Full physical-keyboard
 support, since that is how most people use a calculator on a desktop.
 
 ### Containers
