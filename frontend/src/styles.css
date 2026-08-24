@@ -111,7 +111,17 @@ body {
 
 @media (min-width: 720px) {
   .app__panels {
-    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    /*
+     * The calculator is the subject, so it takes the wider column; history is a
+     * supporting rail. The group is centred instead of filling the container,
+     * which would stretch history into the dominant element again on a wide
+     * screen — it used to be 66% wider than the calculator and a quarter its
+     * height, which read as a slab rather than a sidebar.
+     */
+    grid-template-columns: minmax(0, 24rem) minmax(0, 17rem);
+    justify-content: center;
+    /* Sized to its contents rather than stretched: a rail holding two entries
+       should not be a tall empty card next to a full keypad. */
     align-items: start;
   }
 }
@@ -311,11 +321,14 @@ body {
 /* ---------- History ---------- */
 
 .history {
+  display: flex;
+  flex-direction: column;
   padding: 1rem 1.1rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-panel);
-  box-shadow: var(--shadow);
+  /* Deliberately no shadow: the calculator is the only panel that lifts off
+     the page, which is what keeps it reading as the primary element. */
 }
 
 .history__header {
@@ -353,10 +366,12 @@ body {
   margin: 0;
   color: var(--text-muted);
   font-size: 0.875rem;
+  text-wrap: balance;
 }
 
 .history__list {
-  max-height: 22rem;
+  /* Grows with use, then scrolls rather than outrunning the keypad beside it. */
+  max-height: 26rem;
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -365,9 +380,8 @@ body {
 
 .history__item {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.1rem;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
@@ -378,8 +392,11 @@ body {
 }
 
 .history__expression {
+  overflow-x: auto;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: 0.8rem;
+  /* An overflowing expression scrolls rather than wrapping mid-number. */
+  white-space: nowrap;
 }
 
 .history__result {
