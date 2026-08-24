@@ -1,0 +1,107 @@
+# Pipeline for the calculator: both unit suites, the cross-boundary integration
+# suite, and both container images.
+#
+# The backend job compiles a static binary once and passes it downstream as an
+# artifact, so the integration job runs on a plain Node image with no Go
+# toolchain of its own.
+
+stages:
+  - test
+  - integration
+  - build
+
+variables:
+  GIT_DEPTH: "20"
+
+# ---------------------------------------------------------------- backend ---
+
+backend:test:
+  stage: test
+  image: golang:1.27-alpine
+  cache:
+    key: go-build
+    paths:
+      - .gocache/
+  variables:
+    GOCACHE: "$CI_PROJECT_DIR/.gocache"
+    CGO_ENABLED: "0"
+  script:
+    - cd backend
+    # gofmt exits 0 even when it has complaints, so the output is the check.
+    - test -z "$(gofmt -l .)" || { echo 'gofmt found unformatted files:'; gofmt -l .; exit 1; }
+    - go vet ./...
+    - go test ./... -coverprofile=coverage.out
+    - go tool cover -func=coverage.out | tail -1
+    # Static binary, reused by the integration job below.
+    - go build -trimpath -ldflags="-s -w" -o "$CI_PROJECT_DIR/calculator-server" ./cmd/server
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - calculator-server
+      - backend/coverage.out
+
+# --------------------------------------------------------------- frontend ---
+
+.node:
+  image: node:24-alpine
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - frontend/node_modules/
+  before_script:
+    - cd frontend
+    - npm ci --no-fund --no-audit
+
+frontend:test:
+  extends: .node
+  stage: test
+  script:
+    - npm run typecheck
+    - npm run test:coverage
+  coverage: '/^Statements\s*:\s*([\d.]+)%/'
+  artifacts:
+    expire_in: 1 day
+    when: always
+    paths:
+      - frontend/coverage/
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: frontend/coverage/cobertura-coverage.xml
+
+# Runs the real Go server behind the real Vite proxy and calls the real client.
+# This is the layer the unit suites cannot reach: they stub fetch, so no unit
+# test ever crosses a proxy — which is how a stopped backend once came to be
+# reported as a malformed reply.
+frontend:integration:
+  extends: .node
+  stage: integration
+  needs:
+    - job: backend:test
+      artifacts: true
+  variables:
+    CALCULATOR_BACKEND_BIN: calculator-server
+  script:
+    - npm run test:integration
+
+# ----------------------------------------------------------------- images ---
+
+images:build:
+  stage: build
+  image: docker:28-cli
+  services:
+    - docker:28-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  script:
+    # Both Dockerfiles run their own test suites during the build, so a green
+    # image build is a second, independent check.
+    - docker build -t calculator-backend:$CI_COMMIT_SHORT_SHA ./backend
+    - docker build -t calculator-frontend:$CI_COMMIT_SHORT_SHA ./frontend
+    - docker image ls calculator-backend calculator-frontend
