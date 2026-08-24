@@ -402,6 +402,145 @@ describe('error handling', () => {
   });
 });
 
+describe('concurrent requests', () => {
+  /** A calculate stub whose resolution is controlled by the test. */
+  function deferredCalculate() {
+    let release: (outcome: CalculateOutcome) => void = () => {};
+    const pending = new Promise<CalculateOutcome>((resolve) => {
+      release = resolve;
+    });
+    const calculate = vi.fn(() => pending);
+    return { calculate, release: (o: CalculateOutcome) => release(o), pending };
+  }
+
+  // Regression: the keypad is disabled while a request is in flight, but the
+  // physical keyboard is not. Holding Enter fired one request per keypress and
+  // wrote a history entry for each, so a single calculation produced several.
+  it('ignores an evaluate while one is already in flight', async () => {
+    const { calculate, release, pending } = deferredCalculate();
+    const { result } = setup(calculate);
+
+    type(result, '7');
+    await act(async () => result.current.chooseOperation('multiply'));
+    type(result, '8');
+
+    // Four presses in the same tick, before any re-render could set isLoading.
+    act(() => {
+      void result.current.evaluate();
+      void result.current.evaluate();
+      void result.current.evaluate();
+      void result.current.evaluate();
+    });
+
+    expect(calculate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release({ ok: true, data: { operation: 'multiply', operands: { a: 7, b: 8 }, result: 56 } });
+      await pending;
+    });
+
+    await waitFor(() => expect(result.current.display).toBe('56'));
+    expect(result.current.history).toHaveLength(1);
+  });
+
+  it('ignores a unary operation while one is already in flight', async () => {
+    const { calculate, release, pending } = deferredCalculate();
+    const { result } = setup(calculate);
+
+    type(result, '81');
+    act(() => {
+      void result.current.applyUnary('sqrt');
+      void result.current.applyUnary('sqrt');
+      void result.current.applyUnary('sqrt');
+    });
+
+    expect(calculate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release({ ok: true, data: { operation: 'sqrt', operands: { a: 81 }, result: 9 } });
+      await pending;
+    });
+
+    await waitFor(() => expect(result.current.history).toHaveLength(1));
+  });
+
+  it('accepts a new request once the previous one has settled', async () => {
+    const { result, calculate } = setup();
+
+    type(result, '2');
+    await act(async () => result.current.chooseOperation('add'));
+    type(result, '3');
+    await act(async () => result.current.evaluate());
+    await waitFor(() => expect(result.current.display).toBe('5'));
+
+    await act(async () => result.current.chooseOperation('multiply'));
+    type(result, '4');
+    await act(async () => result.current.evaluate());
+
+    await waitFor(() => expect(result.current.display).toBe('20'));
+    expect(calculate).toHaveBeenCalledTimes(2);
+  });
+
+  // The guard must release on failure too, or one error would wedge the
+  // calculator for the rest of the session.
+  it('releases the guard when a request fails', async () => {
+    const calculate = vi
+      .fn<(op: Operation, a: number, b?: number) => Promise<CalculateOutcome>>()
+      .mockResolvedValueOnce({ ok: false, error: { code: 'division_by_zero', message: 'nope' } })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { operation: 'divide', operands: { a: 10, b: 2 }, result: 5 },
+      });
+    const { result } = setup(calculate);
+
+    type(result, '10');
+    await act(async () => result.current.chooseOperation('divide'));
+    type(result, '0');
+    await act(async () => result.current.evaluate());
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    act(() => result.current.backspace());
+    type(result, '2');
+    await act(async () => result.current.evaluate());
+
+    await waitFor(() => expect(result.current.display).toBe('5'));
+    expect(calculate).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('history ids do not require a secure context', () => {
+  // Regression: ids were minted with crypto.randomUUID(), which browsers expose
+  // only in secure contexts. Served over plain HTTP by hostname or IP — how a
+  // container is normally reached — it is undefined, so every successful
+  // calculation threw and left the keypad stuck loading.
+  it('records history with crypto.randomUUID unavailable', async () => {
+    const original = globalThis.crypto.randomUUID;
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+    });
+
+    try {
+      const { result } = setup();
+
+      type(result, '7');
+      await act(async () => result.current.chooseOperation('multiply'));
+      type(result, '8');
+      await act(async () => result.current.evaluate());
+
+      await waitFor(() => expect(result.current.display).toBe('56'));
+      expect(result.current.history).toHaveLength(1);
+      expect(result.current.history[0]?.id).toBeTruthy();
+      expect(result.current.isLoading).toBe(false);
+    } finally {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        value: original,
+        configurable: true,
+      });
+    }
+  });
+});
+
 describe('reducer purity', () => {
   // StrictMode deliberately invokes reducers twice in development to surface
   // impure ones. A history id minted inside the reducer would make the same

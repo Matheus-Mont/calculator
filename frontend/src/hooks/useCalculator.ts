@@ -3,6 +3,7 @@ import { useCallback, useReducer, useRef } from 'react';
 import { calculate as defaultCalculate } from '../api/client';
 import type { CalculateOutcome } from '../api/client';
 import { formatEntry, formatNumber } from '../lib/format';
+import { nextHistoryId } from '../lib/id';
 import { OPERATION_SYMBOLS } from '../types';
 import type { BinaryOperation, HistoryEntry, Operation, UnaryOperation } from '../types';
 
@@ -209,6 +210,16 @@ export function useCalculator(options: UseCalculatorOptions = {}) {
   stateRef.current = state;
 
   /**
+   * Whether a request is already in flight.
+   *
+   * Deliberately a ref rather than `state.isLoading`: dispatching REQUEST_START
+   * does not update state until the next render, so two calls in the same tick
+   * would both read `isLoading: false` and both fire. Holding Enter down used to
+   * send one request per keypress and write a history entry for each.
+   */
+  const inFlightRef = useRef(false);
+
+  /**
    * Sends the pending binary operation to the API.
    *
    * `nextOp` is what should be left pending afterwards: null for "=", or the
@@ -227,13 +238,18 @@ export function useCalculator(options: UseCalculatorOptions = {}) {
 
       const expression = `${formatNumber(accumulator)} ${OPERATION_SYMBOLS[pendingOp]} ${formatNumber(b)}`;
 
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+
       dispatch({ type: 'REQUEST_START' });
-      const outcome = await calculate(pendingOp, accumulator, b);
+      const outcome = await calculate(pendingOp, accumulator, b).finally(() => {
+        inFlightRef.current = false;
+      });
 
       if (outcome.ok) {
         dispatch({
           type: 'REQUEST_SUCCESS',
-          id: crypto.randomUUID(),
+          id: nextHistoryId(),
           result: outcome.data.result,
           expression,
           nextOp,
@@ -282,13 +298,18 @@ export function useCalculator(options: UseCalculatorOptions = {}) {
 
       const expression = `${OPERATION_SYMBOLS[op]}(${formatNumber(a)})`;
 
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+
       dispatch({ type: 'REQUEST_START' });
-      const outcome = await calculate(op, a);
+      const outcome = await calculate(op, a).finally(() => {
+        inFlightRef.current = false;
+      });
 
       if (outcome.ok) {
         dispatch({
           type: 'UNARY_SUCCESS',
-          id: crypto.randomUUID(),
+          id: nextHistoryId(),
           result: outcome.data.result,
           expression,
         });
