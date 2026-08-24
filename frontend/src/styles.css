@@ -142,6 +142,10 @@ body {
 .display__value {
   display: block;
   overflow-x: auto;
+  /* The number still scrolls by wheel or drag when it outgrows the panel, but
+     the bar itself is hidden: a strip of browser chrome across the bottom of
+     the display reads as part of the readout. */
+  scrollbar-width: none;
   font-size: clamp(2rem, 9vw, 2.75rem);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -149,6 +153,10 @@ body {
   text-align: right;
   /* Long results scroll horizontally instead of stretching the panel. */
   white-space: nowrap;
+}
+
+.display__value::-webkit-scrollbar {
+  display: none;
 }
 
 .display__spinner {
@@ -388,6 +396,26 @@ body {
 .history__list--expanded {
   max-height: 14rem;
   overflow-y: auto;
+  /* Results are right-aligned, so without this they sit directly against the
+     scrollbar. The gutter is reserved even before the bar appears, so opening
+     the list does not shift the numbers sideways. */
+  padding-right: 0.7rem;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.history__list--expanded::-webkit-scrollbar {
+  width: 6px;
+}
+
+.history__list--expanded::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.history__list--expanded::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--border);
 }
 
 .history__item {
@@ -411,10 +439,15 @@ body {
 
 .history__expression {
   overflow-x: auto;
+  scrollbar-width: none;
   color: var(--text-muted);
   font-size: 0.85rem;
   /* An overflowing expression scrolls rather than wrapping mid-number. */
   white-space: nowrap;
+}
+
+.history__expression::-webkit-scrollbar {
+  display: none;
 }
 
 .history__result {
