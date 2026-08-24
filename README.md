@@ -16,6 +16,11 @@ operator) sends the operation to the API.
         :5173 (dev)                            :8080
 ```
 
+> **On AI usage:** this project was built with Claude Code, and
+> [PROMPTS.md](PROMPTS.md) records how — the prompts, which decisions were mine
+> and which the model's, the five defects in generated code and how each was
+> found, and what was deliberately left unverified.
+
 ---
 
 ## Quick start

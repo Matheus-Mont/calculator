@@ -1,122 +1,163 @@
 # Prompts and AI tooling
 
-The assignment asks that the prompts used be shared. This is the complete
-record.
+The assignment asks that the prompts used be shared. This is the record, written
+to be accurate about who decided what rather than flattering about it.
 
-**Tool:** Claude Code (Opus 5), one session, working directly in the repository —
-reading and writing files, running `go test`, `npm test`, `curl` and
+**Tool:** Claude Code (Opus 5), working directly in the repository across three
+sessions — reading and writing files, running `go test`, `npm test`, `curl` and
 `docker compose`, and driving the built UI in a headless Chromium.
 
 ---
 
-## 1. The assignment prompt
+## How the work was actually divided
 
-The assignment brief was pasted in verbatim as the opening prompt: objective,
-functional and non-functional requirements, constraints (React/TypeScript
-frontend, Go backend), deliverables, and instructions. It is reproduced at the
-end of this file.
+Worth stating plainly, because "used AI tooling" spans everything from
+autocomplete to handing over the whole problem, and this sat in a specific place.
 
-## 2. Clarifying questions
+**The model proposed the architecture.** The layering (`internal/calc` knowing
+nothing about HTTP, `internal/httpapi` knowing nothing about arithmetic), the
+operation registry, pointer operands, overflow as a 422, the strict decoder, and
+the three-tier test strategy were all put forward by the model as part of a
+written plan. I reviewed that plan before any code existed and approved it.
 
-Rather than guessing on decisions that would be expensive to reverse, four
-questions were asked up front. The answers:
+**I decided scope, product and interface.** Which of the optional operations to
+include, whether to add CI and a cross-boundary integration tier, the API shape
+(operation in the path rather than the body), the stack constraints, and the
+interface itself. The layout in particular went through my review twice: history
+had been given more width than the calculator and read as the dominant panel, and
+the redesign — one centred column, history stacked beneath and collapsed to the
+latest result behind a toggle — came from that, not from the model.
 
-| Question | Answer |
+**I directed the verification standard.** Nothing was to be reported as working
+on the strength of having been written. Every `curl` example in the README was
+executed against the running service with its real output pasted back, the UI was
+driven in a headless browser, the Docker stack was built and exercised, and every
+coverage figure is measured rather than estimated.
+
+**What I did not do is write the code.** Being precise about that is the point of
+this file. The value I added was direction, review and the standard applied to
+both — which is the part of the work that does not transfer to the next
+assignment if it is faked here.
+
+---
+
+## The prompts
+
+### 1. The brief
+
+The opening prompt was the assignment brief pasted verbatim — objective,
+requirements, constraints, deliverables. On its own that is a weak prompt, and I
+would not defend it as anything else. What made it workable was refusing to let
+implementation start from it.
+
+### 2. Clarification before any code
+
+Four questions were answered before a line was written, because each would have
+been expensive to reverse:
+
+| Question | Decision |
 |---|---|
-| Go was not installed — install it, or run the toolchain through Docker? | Install Go 1.27 to `~/.local/go` (no `sudo`, nothing outside `$HOME`) |
+| Go was not installed — install it, or run the toolchain through Docker? | Install Go 1.27 under `~/.local`, nothing outside `$HOME` |
 | What REST shape? | `POST /api/v1/operations/{operation}` — operation in the path, operands in the body |
-| What should the UI be? | A calculator keypad with a history panel |
-| How far should the git setup go? | `git init` and local commits only — no push |
+| What should the interface be? | A calculator keypad with history |
+| How far should the git setup go? | Local commits only, no push |
 
-A follow-up instruction set the language convention: **the project is written
-entirely in English; the working conversation was in Brazilian Portuguese.**
+A follow-up set the language convention: the repository is written entirely in
+English; the working conversation was in Brazilian Portuguese.
 
-## 3. Planning
+### 3. A written plan, reviewed before implementation
 
-The next prompt asked for a written plan before any code: architecture, the
-edge cases that would need to be handled, the test strategy, and how the result
-would be verified. The approved plan is what the rest of the session executed —
-the layering (`calc` / `httpapi`), the pointer-operand decision, the
-overflow-to-422 guard, and the "verify every README `curl` example against the
-running service" step were all settled there rather than discovered late.
+The next prompt asked for a plan rather than code: architecture, the edge cases
+that would need handling, the test strategy, and how the result would be
+verified. That plan is where the decisions above were settled — including the
+finiteness guard and the "verify every README example against the running
+service" standard — rather than discovered late.
 
-## 4. Execution
+### 4. Iteration across sessions
 
-From there the work followed the plan with no further prompting: domain package
-and tests, HTTP layer and tests, frontend scaffold, state machine, components,
-frontend tests, Docker, docs, git history.
+Later sessions were driven by specific requests: fix the three defects found in
+review, add the GitLab pipeline and the integration tier, rebalance the layout,
+remove the display scrollbar. Each was a narrow instruction against working code,
+not a fresh generation.
 
 ---
 
-## How the AI was actually used
+## What the AI got wrong
 
-Worth being precise, since "used AI tooling" covers a wide range.
+Five defects in generated code, recorded because they mark where output needed
+checking rather than trusting. **All five were found by re-reading the code or by
+exercising the running app — none by a type checker, and none by the test suite
+that existed at the time.**
 
-**What it did well.** Generating the table-driven test matrices was the biggest
-win — the backend's 134 cases and the frontend's 88 would have been tedious to
-enumerate by hand, and breadth is exactly where an edge case gets missed. It was
-also fast at boilerplate that has one correct shape: the nginx config, the
-multi-stage Dockerfiles, the CSS custom-property theming.
+1. **`applyUnary` clobbered the pending operation.** Unary results dispatched the
+   shared success action, which set `pendingOp: null`, so `9 + √16 =` would have
+   lost the `+`. Caught because the code contradicted the comment directly above
+   it. Fixed with a dedicated action; a regression test now asserts `13`.
 
-**Where the judgement calls were.** The design decisions in the README are
-decisions, not generated text: stdlib over a framework, pointer operands,
-overflow as 422 rather than 500, strict decoding, registering each route twice
-to get JSON 405s. Each was chosen deliberately and each is documented with its
-reasoning.
+2. **`useKeyboard` re-bound its listener on every render.** The handlers object is
+   built fresh each render, so as an effect dependency it tore the `keydown`
+   listener down and re-added it continuously. Fixed by reading through a ref.
 
-**Bugs the AI wrote and then caught.** Two are worth recording, because they
-show where generated code needs checking rather than trusting:
+3. **The "backend is down" message said the wrong thing.** The client had a
+   carefully worded network error that turned out to be unreachable code: in every
+   deployed configuration a proxy sits between browser and API, so a stopped
+   backend does not make `fetch` reject — the proxy answers 502 with an empty
+   body, and the client reported "an unexpected response" instead of an
+   unreachable service. A unit test asserted exactly that, pinning the wrong
+   behaviour in place. Found by stopping the backend and using the app.
 
-1. **`applyUnary` clobbered the pending operation.** The first version dispatched
-   the shared `REQUEST_SUCCESS` action for unary results, which set
-   `pendingOp: null` — so `9 + √16 =` would have lost the `+`. The code
-   contradicted the comment sitting directly above it, which is what gave it
-   away. Fixed with a dedicated `UNARY_SUCCESS` action; there is now a
-   regression test asserting the result is `13`.
+   This is what the integration tier exists for. The unit tests stub `fetch`, so
+   none of them ever crosses a proxy. The regression test was verified to fail
+   against the previous implementation before the fix was restored — a regression
+   test that passes on the old code proves nothing.
 
-2. **`useKeyboard` re-bound its listener on every render.** The `handlers` object
-   is constructed fresh each render, so as an effect dependency it tore the
-   `keydown` listener down and re-added it continuously. Fixed by reading
-   handlers through a ref and binding once.
+4. **An impure reducer.** History ids were minted with `crypto.randomUUID()`
+   inside the reducer. React may invoke a reducer more than once for the same
+   action, so the same dispatch could produce different states. The id now travels
+   on the action.
 
-3. **The "backend is down" message told the user the wrong thing.** The client had
-   a carefully worded network error — *"Could not reach the calculator service. Is
-   the backend running?"* — that turned out to be unreachable code. In every
-   deployed configuration a proxy sits between browser and API (Vite in
-   development, nginx in the image), so a stopped backend does not make `fetch`
-   reject: the proxy answers with a 502 and an empty body, `fetch` resolves, and
-   the client fell through to *"the service returned an unexpected response"*.
-   Worse, a unit test asserted exactly that, so the wrong behaviour was pinned in
-   place rather than caught. Fixed by treating 502/503/504 as an unreachable
-   service before the body is read; the test now asserts the corrected message.
+5. **A clipped result.** Hiding the display scrollbar exposed that `2^99` formats
+   to `6.33825300114e+29` and was being silently truncated to `6.33825300114` —
+   with no scrollbar there was nothing left to signal the exponent was missing, so
+   the screen showed a number that was not the answer. The value is now scaled
+   down until it fits, with a floor below which it scrolls instead.
 
-The first two came from reading the code afterwards — neither a type checker nor a
-test would have found them. The third came from actually stopping the backend and
-using the app, which no amount of code reading would have surfaced: the unit tests
-mock `fetch` directly and therefore never exercise the proxy that causes it.
+---
 
-**The git history is a single burst, and that is not a claim of incremental work.**
-`git log` shows fourteen commits inside about forty seconds. They are grouped as
-logical units — domain, transport, tests, frontend, docker, docs — because that is
-how the work was structured, but they were staged at the end of one session rather
-than made as the code was written. The timestamps are left untouched on purpose:
-rewriting them to imply hours of incremental work would misrepresent how this was
-built. Read the messages, not the clock.
+## What was and was not verified
 
-**Verification was not delegated.** Nothing was reported as working on the
-strength of it having been written. Every `curl` example in the README was
-executed against the running service and its real output pasted back; the UI was
-driven in a headless browser in four states (desktop, error, mobile, dark) and
-checked for console errors; the Docker stack was built and exercised through
-nginx. Every coverage number in the README is a measured figure, not an estimate.
+**Verified.** Every documented `curl` example executed against the running
+service. The UI driven in a headless browser at 1280, 390 and 320px, in both
+colour schemes, checked for console errors. The Docker stack built with
+`--no-cache` from a clean clone and exercised through nginx. Both suites run from
+a fresh `git clone` so the README's figures reproduce.
 
-**One limitation is stated rather than hidden.** `go test -race` could not be run
-— this machine has no C compiler, and the race detector requires cgo. The
+**Not verified, and the README does not claim otherwise.** `go test -race` was
+never run: the race detector requires cgo and the machine had no C compiler. The
 handlers are stateless and share nothing across requests, so there is little for
-it to find, but it was not run and the README does not claim it was.
+it to find, but it was not run. There are also no browser-level end-to-end tests;
+the integration tier covers the client against a real backend through a real
+proxy, but nothing automated drives the UI itself.
 
 ---
 
+## The commit history
+
+Twenty-four commits across three sessions over five days: the initial build, a
+round of bug fixes, then CI, the integration tier and the interface work.
+
+The **first fourteen** carry near-identical timestamps. They are grouped as
+logical units — domain, transport, tests, frontend, containers, docs — because
+that is how the work was structured, but they were staged at the end of that
+first session rather than made as the code was written. Later commits are spaced
+as the work actually happened.
+
+The timestamps are left untouched deliberately. Rewriting them to imply hours of
+incremental work would misrepresent how this was built, and it is the kind of
+thing that costs far more when noticed than the untidy history it would hide.
+Read the messages, not the clock.
+
+---
 ## Appendix: the assignment prompt, verbatim
 
 > **Objective**
