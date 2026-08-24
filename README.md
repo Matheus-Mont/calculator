@@ -240,7 +240,7 @@ fail against the previous implementation.
 
 ### Coverage
 
-Measured on the committed code — **254 test cases, all passing**.
+Measured on the committed code — **259 test cases, all passing**.
 
 **Backend** — `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
@@ -265,7 +265,7 @@ than a unit test. The two packages holding the actual logic are at 100% and 98.6
 | Functions | **100%** (49/49) |
 | Lines | **98.35%** (179/182) |
 
-105 unit cases across the API client, the `useCalculator` state machine, number
+110 unit cases across the API client, the `useCalculator` state machine, number
 formatting, and full-UI tests that click real buttons — plus **15 integration
 cases** that run against a real backend and are excluded from the coverage
 figures above, since they exercise the shipped code rather than measure it.
@@ -298,7 +298,8 @@ Not just happy paths — the interesting cases are the edges:
   feeding a pending binary one, the loading state, error recovery, history, all
   22 keypad buttons, physical-keyboard input, reducer purity under `StrictMode`,
   collapsing and expanding the history, fitting an oversized result to the
-  display, and the difference between a stopped backend and a malformed reply.
+  display, refusing concurrent requests, history ids that do not need a secure
+  context, and the difference between a stopped backend and a malformed reply.
 
 ---
 

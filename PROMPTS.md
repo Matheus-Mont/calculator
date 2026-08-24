@@ -84,10 +84,13 @@ not a fresh generation.
 
 ## What the AI got wrong
 
-Five defects in generated code, recorded because they mark where output needed
-checking rather than trusting. **All five were found by re-reading the code or by
+Seven defects in generated code, recorded because they mark where output needed
+checking rather than trusting. **All seven were found by re-reading the code or by
 exercising the running app — none by a type checker, and none by the test suite
-that existed at the time.**
+that existed at the time.** The last two were found only when the finished
+repository was reviewed as an evaluator would review it, which is the strongest
+argument in this file for reviewing your own work adversarially before shipping
+it.
 
 1. **`applyUnary` clobbered the pending operation.** Unary results dispatched the
    shared success action, which set `pendingOp: null`, so `9 + √16 =` would have
@@ -122,12 +125,36 @@ that existed at the time.**
    the screen showed a number that was not the answer. The value is now scaled
    down until it fits, with a floor below which it scrolls instead.
 
+6. **A crash on any deployment that is not localhost.** History ids were minted
+   with `crypto.randomUUID()`, which browsers expose only in secure contexts.
+   Served over plain HTTP by hostname or IP — how a container is normally reached
+   — it is `undefined`, so the first successful calculation threw a TypeError,
+   the result never reached the screen, and the keypad stayed disabled in its
+   loading state. The app was unusable. Reproduced in a browser with the API
+   removed, then fixed by dropping the UUID entirely: these ids are React keys
+   within one session, so a counter does the job with no such dependency.
+
+   This is the defect this whole file most warrants existing for. It cannot be
+   seen in development, because `localhost` *is* a secure context.
+
+7. **A race between the keyboard and the keypad.** The keypad is disabled while a
+   request is in flight; the physical keyboard was not, and neither was the hook
+   behind both. Holding Enter fired one request per keypress and wrote a history
+   entry for each — five presses produced five requests and four duplicate
+   entries for a single calculation. Fixed with a synchronous in-flight guard in
+   the hook rather than in the keyboard handler, so every caller is covered.
+   `state.isLoading` would not have worked: dispatching does not update state
+   until the next render, so two calls in the same tick would both have read it
+   as false.
+
 ---
 
 ## What was and was not verified
 
 **Verified.** Every documented `curl` example executed against the running
-service. The UI driven in a headless browser at 1280, 390 and 320px, in both
+service. Both regression tests above were confirmed to fail against the previous
+implementation before the fixes were restored — a regression test that passes on
+the broken code proves nothing. The UI driven in a headless browser at 1280, 390 and 320px, in both
 colour schemes, checked for console errors. The Docker stack built with
 `--no-cache` from a clean clone and exercised through nginx. Both suites run from
 a fresh `git clone` so the README's figures reproduce.
