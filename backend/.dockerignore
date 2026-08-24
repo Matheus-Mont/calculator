@@ -1,0 +1,13 @@
+# Build and coverage artefacts; the image compiles from source.
+server
+coverage.out
+coverage.html
+
+# Local-only
+.env
+*.log
+
+.git/
+.gitignore
+.dockerignore
+Dockerfile

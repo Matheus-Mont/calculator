@@ -1,10 +1,73 @@
 package httpapi
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"time"
 )
+
+// RequestIDHeader carries the correlation id, both inbound and outbound.
+const RequestIDHeader = "X-Request-Id"
+
+// maxInboundRequestIDLen bounds an id supplied by a caller, so a hostile client
+// cannot pad log lines with an unbounded string.
+const maxInboundRequestIDLen = 64
+
+// contextKey is unexported so no other package can collide with these keys.
+type contextKey struct{ name string }
+
+var requestIDKey = &contextKey{"request-id"}
+
+// withRequestID tags every request with a correlation id, reusing one supplied
+// by an upstream proxy or load balancer when present so a trace survives the
+// hop. The id goes into every log line for the request, comes back on the
+// response header, and is included in error bodies — which is what lets someone
+// reporting a failure quote something findable in the logs.
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := sanitiseRequestID(r.Header.Get(RequestIDHeader))
+		if id == "" {
+			id = newRequestID()
+		}
+
+		w.Header().Set(RequestIDHeader, id)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey, id)))
+	})
+}
+
+// requestIDFrom returns the correlation id carried by ctx, if any.
+func requestIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey).(string)
+	return id
+}
+
+// sanitiseRequestID accepts only printable ASCII, so a caller cannot inject
+// newlines into the log stream and forge entries.
+func sanitiseRequestID(raw string) string {
+	if len(raw) == 0 || len(raw) > maxInboundRequestIDLen {
+		return ""
+	}
+	for _, r := range raw {
+		if r < '!' || r > '~' {
+			return ""
+		}
+	}
+	return raw
+}
+
+// newRequestID returns a random hex id. crypto/rand keeps this dependency-free;
+// it cannot fail in practice, and a fixed fallback is preferable to refusing the
+// request over a missing log label.
+func newRequestID() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "unidentified"
+	}
+	return hex.EncodeToString(buf[:])
+}
 
 // statusRecorder wraps http.ResponseWriter to remember the status code, which
 // the standard interface does not expose but request logging needs.
@@ -41,6 +104,7 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 			rec.status = http.StatusOK
 		}
 		logger.Info("request",
+			slog.String("request_id", requestIDFrom(r.Context())),
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int("status", rec.status),
@@ -57,13 +121,14 @@ func recoverPanic(logger *slog.Logger, next http.Handler) http.Handler {
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				logger.Error("panic recovered",
+					slog.String("request_id", requestIDFrom(r.Context())),
 					slog.Any("panic", recovered),
 					slog.String("path", r.URL.Path),
 				)
 				writeError(w, logger, newAPIError(
 					http.StatusInternalServerError, CodeInternalError,
 					"an unexpected error occurred",
-				))
+				), r)
 			}
 		}()
 
@@ -84,7 +149,10 @@ func withCORS(allowedOrigin string, next http.Handler) http.Handler {
 		if origin := r.Header.Get("Origin"); origin != "" && originAllowed(allowedOrigin, origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, "+RequestIDHeader)
+			// Without this the browser hides the header from page scripts, so a
+			// client could not report the id of a failed request.
+			w.Header().Set("Access-Control-Expose-Headers", RequestIDHeader)
 			w.Header().Set("Access-Control-Max-Age", "300")
 		}
 

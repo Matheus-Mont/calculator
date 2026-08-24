@@ -20,6 +20,7 @@ const (
 	CodeUnsupportedOperation ErrorCode = "unsupported_operation"
 	CodeResultNotFinite      ErrorCode = "result_not_finite"
 	CodeMethodNotAllowed     ErrorCode = "method_not_allowed"
+	CodeUnsupportedMediaType ErrorCode = "unsupported_media_type"
 	CodeNotFound             ErrorCode = "not_found"
 	CodeRequestTooLarge      ErrorCode = "request_too_large"
 	CodeInternalError        ErrorCode = "internal_error"
@@ -38,6 +39,8 @@ type errorDetail struct {
 	// SupportedOperations is populated only for unsupported_operation, so the
 	// error is self-documenting and a client need not guess the valid set.
 	SupportedOperations []calc.Operation `json:"supported_operations,omitempty"`
+	// RequestID matches the X-Request-Id response header and the server logs.
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // apiError couples an HTTP status with the payload to render. It implements

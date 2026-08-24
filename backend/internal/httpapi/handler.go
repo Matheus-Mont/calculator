@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 
 	"github.com/Matheus-Mont/calculator/backend/internal/calc"
@@ -77,9 +78,10 @@ func NewRouter(logger *slog.Logger, allowedOrigin string) http.Handler {
 	// Catch-all, so an unknown path also answers in JSON.
 	mux.HandleFunc("/", s.handleNotFound)
 
-	// Outermost first: logging sees the final status, CORS headers are applied
-	// to every response including errors, and panics become a JSON 500.
-	return logRequests(s.logger, withCORS(allowedOrigin, recoverPanic(s.logger, mux)))
+	// Outermost first: the request id is assigned before anything logs, logging
+	// then sees the final status, CORS headers are applied to every response
+	// including errors, and panics become a JSON 500.
+	return withRequestID(logRequests(s.logger, withCORS(allowedOrigin, recoverPanic(s.logger, mux))))
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -109,25 +111,30 @@ func (s *server) handleCalculate(w http.ResponseWriter, r *http.Request) {
 	// validation possible.
 	def, err := calc.Lookup(op)
 	if err != nil {
-		writeError(w, s.logger, fromDomainError(err))
+		writeError(w, s.logger, fromDomainError(err), r)
+		return
+	}
+
+	if apiErr := requireJSONContentType(r); apiErr != nil {
+		writeError(w, s.logger, apiErr, r)
 		return
 	}
 
 	req, apiErr := decodeCalculateRequest(w, r)
 	if apiErr != nil {
-		writeError(w, s.logger, apiErr)
+		writeError(w, s.logger, apiErr, r)
 		return
 	}
 
 	a, b, apiErr := validateOperands(def, req)
 	if apiErr != nil {
-		writeError(w, s.logger, apiErr)
+		writeError(w, s.logger, apiErr, r)
 		return
 	}
 
 	result, err := calc.Evaluate(op, a, b)
 	if err != nil {
-		writeError(w, s.logger, fromDomainError(err))
+		writeError(w, s.logger, fromDomainError(err), r)
 		return
 	}
 
@@ -140,6 +147,26 @@ func (s *server) handleCalculate(w http.ResponseWriter, r *http.Request) {
 		resp.Operands.B = &b
 	}
 	writeJSON(w, s.logger, http.StatusOK, resp)
+}
+
+// requireJSONContentType rejects a body whose media type is not JSON. Guessing
+// at an unlabelled body is how a client silently sends the wrong thing for a
+// long time, so the header is mandatory rather than assumed.
+func requireJSONContentType(r *http.Request) *apiError {
+	header := r.Header.Get("Content-Type")
+	if header == "" {
+		return newAPIError(http.StatusUnsupportedMediaType, CodeUnsupportedMediaType,
+			`the Content-Type header is required and must be "application/json"`)
+	}
+
+	// ParseMediaType strips parameters, so "application/json; charset=utf-8" is
+	// accepted as the same media type.
+	mediaType, _, err := mime.ParseMediaType(header)
+	if err != nil || mediaType != "application/json" {
+		return newAPIError(http.StatusUnsupportedMediaType, CodeUnsupportedMediaType,
+			fmt.Sprintf("unsupported Content-Type %q; expected application/json", header))
+	}
+	return nil
 }
 
 // decodeCalculateRequest reads the body strictly: unknown fields, trailing
@@ -237,13 +264,13 @@ func (s *server) methodNotAllowed(allowed ...string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", allowHeader)
 		writeError(w, s.logger, newAPIError(http.StatusMethodNotAllowed, CodeMethodNotAllowed,
-			fmt.Sprintf("method %s is not allowed for this endpoint", r.Method)))
+			fmt.Sprintf("method %s is not allowed for this endpoint", r.Method)), r)
 	}
 }
 
 func (s *server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	writeError(w, s.logger, newAPIError(http.StatusNotFound, CodeNotFound,
-		fmt.Sprintf("no endpoint matches %s", r.URL.Path)))
+		fmt.Sprintf("no endpoint matches %s", r.URL.Path)), r)
 }
 
 // writeJSON serialises payload. It encodes into a buffer first so that a
@@ -266,6 +293,10 @@ func writeJSON(w http.ResponseWriter, logger *slog.Logger, status int, payload a
 	}
 }
 
-func writeError(w http.ResponseWriter, logger *slog.Logger, apiErr *apiError) {
-	writeJSON(w, logger, apiErr.status, errorResponse{Error: apiErr.detail})
+// writeError renders an error, stamping it with the request id so someone
+// reporting a failure can quote something that appears in the logs.
+func writeError(w http.ResponseWriter, logger *slog.Logger, apiErr *apiError, r *http.Request) {
+	detail := apiErr.detail
+	detail.RequestID = requestIDFrom(r.Context())
+	writeJSON(w, logger, apiErr.status, errorResponse{Error: detail})
 }

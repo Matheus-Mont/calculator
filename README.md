@@ -106,7 +106,8 @@ curl http://localhost:8080/api/v1/operations
 ### `POST /api/v1/operations/{operation}`
 
 The operation is named in the path; the operands go in the body. `b` is omitted
-for unary operations.
+for unary operations. `Content-Type: application/json` is required — an
+unlabelled body is rejected with `415` rather than guessed at.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/operations/add \
@@ -135,8 +136,11 @@ One envelope for every failure, with a stable machine-readable `code`. Branch on
 the code, not on the message.
 
 ```json
-{"error":{"code":"division_by_zero","message":"cannot divide by zero"}}
+{"error":{"code":"division_by_zero","message":"cannot divide by zero","request_id":"cf20a044d14268b8"}}
 ```
+
+Every response carries an `X-Request-Id` header, and every error repeats it in
+the body — see [Request correlation](#request-correlation) below.
 
 | Code | Status | Cause |
 |---|---|---|
@@ -145,6 +149,7 @@ the code, not on the message.
 | `invalid_operands` | 400 | operand missing, wrong type, or wrong count for the operation |
 | `invalid_json` | 400 | body is malformed, empty, or has unknown fields |
 | `method_not_allowed` | 405 | wrong verb for the path (`Allow` header names the right one) |
+| `unsupported_media_type` | 415 | `Content-Type` is missing or is not `application/json` |
 | `not_found` | 404 | no such endpoint |
 | `unsupported_operation` | 404 | unknown operation; the response lists the valid set |
 | `request_too_large` | 413 | body exceeds 1 MiB |
@@ -195,6 +200,32 @@ curl -X GET http://localhost:8080/api/v1/operations/add
 # {"error":{"code":"method_not_allowed","message":"method GET is not allowed for this endpoint"}}
 ```
 
+### Request correlation
+
+Every request is tagged with an id, logged with it, and answered with it:
+
+```bash
+curl -i -X POST http://localhost:8080/api/v1/operations/divide \
+  -H 'Content-Type: application/json' -d '{"a":1,"b":0}'
+# X-Request-Id: cf20a044d14268b8
+# {"error":{"code":"division_by_zero","message":"cannot divide by zero","request_id":"cf20a044d14268b8"}}
+```
+
+```json
+{"time":"...","level":"INFO","msg":"request","request_id":"cf20a044d14268b8",
+ "method":"POST","path":"/api/v1/operations/divide","status":400,"duration":290714}
+```
+
+An id supplied by an upstream proxy or load balancer is reused, so a trace
+survives the hop; one that is missing, overlong, or contains anything outside
+printable ASCII is replaced, so a caller cannot inject newlines and forge log
+entries. Because the id also appears in the error body, someone reporting a
+failure can quote a string that is directly greppable in the logs — which is the
+difference between a five-minute and a five-hour page.
+
+The frontend does not yet surface the id in its error banner; that is the
+obvious next step and is listed under [With more time](#with-more-time).
+
 ### Configuration
 
 | Variable | Default | Purpose |
@@ -240,21 +271,21 @@ fail against the previous implementation.
 
 ### Coverage
 
-Measured on the committed code — **259 test cases, all passing**.
+Measured on the committed code — **272 test cases, all passing**.
 
 **Backend** — `go test ./... -coverprofile=coverage.out && go tool cover -func=coverage.out`
 
 | Package | Coverage | |
 |---|---|---|
 | `internal/calc` | **100.0%** | the arithmetic domain |
-| `internal/httpapi` | **98.6%** | routing, validation, error mapping, middleware |
+| `internal/httpapi` | **98.4%** | routing, validation, error mapping, middleware |
 | `cmd/server` | 18.5% | config and the health probe; the rest is `run()`, the blocking server lifecycle |
-| **total** | **78.4%** | 134 test cases |
+| **total** | **80.3%** | 147 test cases |
 
 The total is dragged down by `cmd/server`, which is process wiring: starting a
 listener, waiting on a signal, shutting down. Testing that meaningfully means
 starting and killing a real process, which belongs in an integration test rather
-than a unit test. The two packages holding the actual logic are at 100% and 98.6%.
+than a unit test. The two packages holding the actual logic are at 100% and 98.4%.
 
 **Frontend** — `npm run test:coverage` (v8 provider)
 
@@ -436,7 +467,12 @@ non-root UID — **10.5 MB**, with no shell or package manager for an attacker t
 reach. Because scratch has no `curl`, the container health check re-executes the
 binary with a `-healthcheck` flag that probes `/healthz` itself. Both images run
 their test suites during the build, so a broken commit cannot produce a working
-image. Compose gates the frontend on the backend's healthcheck.
+image. Compose gates the frontend on the backend's healthcheck and caps both services'
+CPU and memory. nginx sends `X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy` and a `default-src 'self'` CSP — the bundle loads no third
+party code, so a restrictive policy costs nothing — and both build contexts are
+trimmed by a `.dockerignore` (the frontend's was 121 MB, almost all of it
+`node_modules`; it is now around 39 kB).
 
 ---
 
@@ -474,7 +510,7 @@ calculator/
 │   ├── cmd/server/main.go        # config, timeouts, graceful shutdown, health probe
 │   └── internal/
 │       ├── calc/                 # arithmetic + domain errors   (100% covered)
-│       └── httpapi/              # routing, validation, errors, middleware (98.6%)
+│       └── httpapi/              # routing, validation, errors, middleware (98.4%)
 ├── frontend/
 │   └── src/
 │       ├── api/client.ts         # typed fetch wrapper, discriminated-union results
@@ -497,8 +533,9 @@ calculator/
   against a real backend through a real proxy, but nothing automated drives the
   actual UI; that was verified by hand in a headless browser. A Playwright suite
   against `docker compose up` would close the last gap.
-- **Request IDs** threaded from the frontend through `slog`, so one calculation
-  is traceable end to end.
+- **Surfacing the request id in the UI.** The backend assigns, logs and returns
+  one, but the error banner does not show it, so a user reporting a failure still
+  cannot quote it.
 - **Rate limiting** — the API is unauthenticated and currently unprotected.
 - **`golangci-lint` and ESLint** — `gofmt`, `go vet` and `tsc --strict` are
   clean and gated in CI, but neither linter is wired up.

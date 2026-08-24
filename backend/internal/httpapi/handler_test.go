@@ -445,6 +445,7 @@ func TestCORS(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/divide",
 			strings.NewReader(`{"a":1,"b":0}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", testOrigin)
 
 		rec := httptest.NewRecorder()
@@ -461,6 +462,7 @@ func TestCORS(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/add",
 			strings.NewReader(`{"a":1,"b":2}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "http://evil.example.com")
 
 		rec := httptest.NewRecorder()
@@ -477,6 +479,144 @@ func TestCORS(t *testing.T) {
 		rec := do(t, http.MethodGet, "/healthz", "")
 		if got := rec.Header().Get("Vary"); got != "Origin" {
 			t.Errorf("Vary = %q, want %q", got, "Origin")
+		}
+	})
+}
+
+func TestContentTypeIsRequired(t *testing.T) {
+	t.Parallel()
+
+	// Guessing at an unlabelled body is how a client sends the wrong thing for
+	// a long time without noticing, so the header is mandatory.
+	tests := []struct {
+		name        string
+		contentType string
+		wantStatus  int
+	}{
+		{"json is accepted", "application/json", http.StatusOK},
+		{"json with charset is accepted", "application/json; charset=utf-8", http.StatusOK},
+		{"missing is rejected", "", http.StatusUnsupportedMediaType},
+		{"form encoding is rejected", "application/x-www-form-urlencoded", http.StatusUnsupportedMediaType},
+		{"plain text is rejected", "text/plain", http.StatusUnsupportedMediaType},
+		{"malformed header is rejected", "application/json;;;", http.StatusUnsupportedMediaType},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/operations/add",
+				strings.NewReader(`{"a":1,"b":2}`))
+			if tc.contentType != "" {
+				req.Header.Set("Content-Type", tc.contentType)
+			}
+
+			rec := httptest.NewRecorder()
+			newTestRouter().ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d\nbody: %s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if tc.wantStatus == http.StatusUnsupportedMediaType {
+				body := decodeBody[errBody](t, rec)
+				if body.Error.Code != "unsupported_media_type" {
+					t.Errorf("error code = %q, want %q", body.Error.Code, "unsupported_media_type")
+				}
+			}
+		})
+	}
+}
+
+// The request id is what lets someone reporting a failure — at 3am, from a
+// support ticket — be found in the logs.
+func TestRequestID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("is generated when the caller supplies none", func(t *testing.T) {
+		t.Parallel()
+
+		rec := do(t, http.MethodGet, "/healthz", "")
+
+		id := rec.Header().Get("X-Request-Id")
+		if id == "" {
+			t.Fatal("X-Request-Id header is missing")
+		}
+		if len(id) < 8 {
+			t.Errorf("X-Request-Id = %q, want something long enough to be unique", id)
+		}
+	})
+
+	t.Run("differs between requests", func(t *testing.T) {
+		t.Parallel()
+
+		first := do(t, http.MethodGet, "/healthz", "").Header().Get("X-Request-Id")
+		second := do(t, http.MethodGet, "/healthz", "").Header().Get("X-Request-Id")
+
+		if first == second {
+			t.Errorf("two requests shared the id %q", first)
+		}
+	})
+
+	// Reusing an upstream id is what keeps a trace intact across a proxy.
+	t.Run("reuses an id supplied upstream", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		req.Header.Set("X-Request-Id", "edge-proxy-abc123")
+
+		rec := httptest.NewRecorder()
+		newTestRouter().ServeHTTP(rec, req)
+
+		if got := rec.Header().Get("X-Request-Id"); got != "edge-proxy-abc123" {
+			t.Errorf("X-Request-Id = %q, want the upstream value", got)
+		}
+	})
+
+	// A caller must not be able to inject newlines and forge log entries, or to
+	// pad every line with an unbounded string.
+	t.Run("replaces a hostile id", func(t *testing.T) {
+		t.Parallel()
+
+		for _, hostile := range []string{
+			"forged\nlevel=ERROR msg=\"fake entry\"",
+			strings.Repeat("x", 500),
+			"has spaces",
+		} {
+			req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+			req.Header.Set("X-Request-Id", hostile)
+
+			rec := httptest.NewRecorder()
+			newTestRouter().ServeHTTP(rec, req)
+
+			got := rec.Header().Get("X-Request-Id")
+			if got == hostile {
+				t.Errorf("hostile id %q was echoed back unchanged", hostile[:min(len(hostile), 30)])
+			}
+			if got == "" {
+				t.Error("no id was generated to replace the rejected one")
+			}
+		}
+	})
+
+	t.Run("appears in error bodies", func(t *testing.T) {
+		t.Parallel()
+
+		rec := do(t, http.MethodPost, "/api/v1/operations/divide", `{"a":1,"b":0}`)
+		assertStatus(t, rec, http.StatusBadRequest)
+
+		body := decodeBody[struct {
+			Error struct {
+				RequestID string `json:"request_id"`
+			} `json:"error"`
+		}](t, rec)
+
+		if body.Error.RequestID == "" {
+			t.Fatal("error body carries no request_id")
+		}
+		// The body and the header must agree, or quoting one would not find the other.
+		if body.Error.RequestID != rec.Header().Get("X-Request-Id") {
+			t.Errorf("body request_id %q does not match header %q",
+				body.Error.RequestID, rec.Header().Get("X-Request-Id"))
 		}
 	})
 }

@@ -13,6 +13,13 @@ services:
       # over the internal network regardless. Override the host port when 8080
       # is taken: BACKEND_PORT=9090 docker compose up
       - "${BACKEND_PORT:-8080}:8080"
+    # Bounded so a runaway container cannot starve its host. The service is a
+    # stateless calculator; these are generous for what it does.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
     healthcheck:
       # scratch has no shell or curl, so the health check uses the binary's own
       # built-in probe.
@@ -29,6 +36,11 @@ services:
     ports:
       # Override when 3000 is taken: FRONTEND_PORT=3001 docker compose up
       - "${FRONTEND_PORT:-3000}:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
     depends_on:
       backend:
         condition: service_healthy

@@ -1,0 +1,16 @@
+# Everything the image builds for itself. Without this the build context is
+# ~121 MB, almost all of it node_modules, uploaded to the daemon on every build.
+node_modules/
+dist/
+coverage/
+
+# Local-only
+.env
+.env.local
+*.log
+
+# Not needed to build the image, and .git alone is several megabytes.
+.git/
+.gitignore
+.dockerignore
+Dockerfile
