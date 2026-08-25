@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.com/mathspa98/calculator/backend/internal/calc"
+	"gitlab.com/Matheus-Mont/calculator/backend/internal/calc"
 )
 
 func TestEvaluate(t *testing.T) {

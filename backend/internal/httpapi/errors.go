@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"gitlab.com/mathspa98/calculator/backend/internal/calc"
+	"gitlab.com/Matheus-Mont/calculator/backend/internal/calc"
 )
 
 // ErrorCode is a stable, machine-readable identifier for a failure. Clients are

@@ -1,3 +1,3 @@
-module gitlab.com/mathspa98/calculator/backend
+module gitlab.com/Matheus-Mont/calculator/backend
 
 go 1.27.0
