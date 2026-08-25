@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
@@ -35,6 +35,15 @@ let backend: ChildProcess | null = null;
 let vite: ViteDevServer;
 
 /**
+ * Everything the server process wrote.
+ *
+ * Captured rather than discarded so a failure to start reports why. Swallowing
+ * it leaves only "backend never became reachable", which says nothing useful in
+ * a CI log.
+ */
+let backendOutput = '';
+
+/**
  * Resolves the server binary.
  *
  * CI builds it once in the Go job and passes the path in, so the Node job needs
@@ -47,6 +56,8 @@ function resolveBackendBinary(): string {
     if (!existsSync(path)) {
       throw new Error(`CALCULATOR_BACKEND_BIN points at a missing file: ${path}`);
     }
+    const { size, mode } = statSync(path);
+    console.info(`using prebuilt backend: ${path} (${size} bytes, mode ${(mode & 0o777).toString(8)})`);
     return path;
   }
 
@@ -76,16 +87,48 @@ function resolveBackendBinary(): string {
 }
 
 function startBackend(binary: string): ChildProcess {
-  return spawn(binary, [], {
+  // CI artifacts do not reliably preserve the executable bit, and a binary that
+  // cannot be executed would otherwise surface only as a timeout.
+  try {
+    chmodSync(binary, 0o755);
+  } catch {
+    // Already executable, or not ours to change; spawn will report the truth.
+  }
+
+  backendOutput = '';
+  const child = spawn(binary, [], {
     env: { ...process.env, PORT: String(INTEGRATION_BACKEND_PORT) },
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
+
+  child.stdout?.on('data', (chunk: Buffer) => {
+    backendOutput += chunk.toString();
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    backendOutput += chunk.toString();
+  });
+  child.on('error', (error) => {
+    backendOutput += `failed to spawn: ${error.message}\n`;
+  });
+  child.on('exit', (code, signal) => {
+    if (code !== null && code !== 0) backendOutput += `exited with status ${code}\n`;
+    if (signal !== null) backendOutput += `terminated by ${signal}\n`;
+  });
+
+  return child;
 }
 
 /** Polls until the server answers, so tests never race the boot. */
 async function waitForBackend(up: boolean, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    // A process that has already exited is never going to answer; failing now
+    // reports the reason instead of waiting out the timeout.
+    if (up && backend !== null && backend.exitCode !== null) {
+      throw new Error(
+        `backend exited before it became reachable\n--- server output ---\n${backendOutput || '(none)'}`,
+      );
+    }
     let healthy = false;
     try {
       const response = await fetch(`http://127.0.0.1:${INTEGRATION_BACKEND_PORT}/healthz`);
@@ -96,7 +139,10 @@ async function waitForBackend(up: boolean, timeoutMs = 15_000): Promise<void> {
     if (healthy === up) return;
     await new Promise((r) => setTimeout(r, 150));
   }
-  throw new Error(`backend never became ${up ? 'reachable' : 'unreachable'}`);
+  throw new Error(
+    `backend never became ${up ? 'reachable' : 'unreachable'} within ${timeoutMs}ms` +
+      `\n--- server output ---\n${backendOutput || '(none)'}`,
+  );
 }
 
 async function stopBackend(): Promise<void> {
