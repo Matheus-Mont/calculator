@@ -164,6 +164,11 @@ beforeAll(async () => {
     root: resolve(__dirname, '../../..'),
     configFile: resolve(__dirname, '../../../vite.config.ts'),
     server: {
+      // Bound explicitly to the IPv4 loopback. Vite otherwise binds whatever
+      // "localhost" resolves to, and in a container that is often ::1 — the
+      // server starts cleanly and every request to 127.0.0.1 is then refused,
+      // which surfaces as an unreachable API rather than a bind failure.
+      host: '127.0.0.1',
       port: INTEGRATION_PROXY_PORT,
       strictPort: true,
       proxy: {
