@@ -104,4 +104,6 @@ images:build:
     # image build is a second, independent check.
     - docker build -t calculator-backend:$CI_COMMIT_SHORT_SHA ./backend
     - docker build -t calculator-frontend:$CI_COMMIT_SHORT_SHA ./frontend
-    - docker image ls calculator-backend calculator-frontend
+    # One repository per invocation: `docker image ls` takes at most one.
+    - docker image ls calculator-backend
+    - docker image ls calculator-frontend
